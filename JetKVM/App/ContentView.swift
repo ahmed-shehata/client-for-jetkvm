@@ -22,7 +22,7 @@ struct ContentView: View {
                 ContentUnavailableView(
                     "No Device Selected",
                     systemImage: "desktopcomputer",
-                    description: Text("Select a JetKVM device from the sidebar or add one manually.")
+                    description: Text("Select a KVM device from the sidebar or add one manually.")
                 )
             }
         }

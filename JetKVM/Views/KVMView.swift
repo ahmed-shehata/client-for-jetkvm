@@ -1,6 +1,11 @@
 import SwiftUI
 @preconcurrency import WebRTC
 import os
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Main KVM session view — shows video, handles input, manages the WebRTC connection.
 struct KVMView: View {
@@ -81,6 +86,23 @@ struct KVMView: View {
                 }
                 .disabled(!viewModel.state.isActive)
                 #endif
+
+                if viewModel.isPasting {
+                    Button {
+                        viewModel.cancelPaste()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark.circle")
+                            .font(.caption)
+                    }
+                } else {
+                    Button {
+                        viewModel.pasteFromClipboard()
+                    } label: {
+                        Label("Paste", systemImage: "doc.on.clipboard")
+                            .font(.caption)
+                    }
+                    .disabled(!viewModel.state.isActive)
+                }
 
                 ForEach(device.shortcuts) { shortcut in
                     Button {
@@ -191,6 +213,7 @@ final class KVMViewModel {
 
     var state: ConnectionState = .disconnected
     var videoTrack: RTCVideoTrack?
+    var isPasting = false
     var softwareKeyboardVisible = false {
         didSet {
             #if os(iOS)
@@ -267,6 +290,69 @@ final class KVMViewModel {
             try? await Task.sleep(for: .milliseconds(50))
             hidService.sendKeyboardReport(modifier: 0, keys: [])
         }
+    }
+
+    /// Paste text from the host clipboard into the guest by sending a keyboard macro.
+    func pasteFromClipboard() {
+        guard let hidService else { return }
+
+        let text: String?
+        #if os(iOS)
+        text = UIPasteboard.general.string
+        #else
+        text = NSPasteboard.general.string(forType: .string)
+        #endif
+
+        guard let text, !text.isEmpty else {
+            logger.info("Paste: clipboard is empty")
+            return
+        }
+
+        // Convert text to keyboard macro steps
+        var steps: [HIDService.MacroStep] = []
+        let interKeyDelay: UInt16 = 20
+
+        for char in text {
+            guard let info = KeyMapping.hidInfo(for: char) else {
+                continue // Skip unsupported characters
+            }
+
+            // Key press step
+            steps.append(HIDService.MacroStep(
+                modifier: info.modifier,
+                keys: [info.keycode],
+                delay: interKeyDelay
+            ))
+
+            // Key release step
+            steps.append(HIDService.MacroStep(
+                modifier: 0,
+                keys: [],
+                delay: interKeyDelay
+            ))
+        }
+
+        guard !steps.isEmpty else {
+            logger.info("Paste: no supported characters in clipboard text")
+            return
+        }
+
+        isPasting = true
+        hidService.sendKeyboardMacro(steps: steps, isPaste: true)
+
+        // Auto-clear isPasting after a conservative timeout based on step count
+        // The device should send back a KeyboardMacroState message, but as a fallback:
+        let stepCount = steps.count
+        Task {
+            try? await Task.sleep(for: .milliseconds(Int(interKeyDelay) * stepCount + 500))
+            isPasting = false
+        }
+    }
+
+    /// Cancel an in-progress paste operation.
+    func cancelPaste() {
+        hidService?.sendCancelKeyboardMacro()
+        isPasting = false
     }
 
     // MARK: - Signaling

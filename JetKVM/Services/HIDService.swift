@@ -124,6 +124,55 @@ final class HIDService {
         webrtcClient?.sendHID(data, reliable: false)
     }
 
+    // MARK: - Keyboard Macro (Paste)
+
+    /// A single step in a keyboard macro sequence.
+    struct MacroStep {
+        let modifier: UInt8
+        let keys: [UInt8]    // Up to 6 keys (padded with zeros)
+        let delay: UInt16    // Delay in milliseconds after this step
+    }
+
+    /// Send a keyboard macro to the device for server-side execution.
+    ///
+    /// The device processes the entire sequence, handling timing internally.
+    /// Wire format: `[0x07] [isPaste: 1B] [stepCount: 4B BE] [steps...]`
+    /// Each step: `[modifier: 1B] [key1..key6: 6B] [delay: 2B BE]`
+    func sendKeyboardMacro(steps: [MacroStep], isPaste: Bool = true) {
+        let stepCount = UInt32(steps.count)
+        var data = Data(capacity: 1 + 1 + 4 + steps.count * 9)
+
+        data.append(MessageType.keyboardMacro.rawValue)
+        data.append(isPaste ? 0x01 : 0x00)
+
+        // Step count — 4 bytes big-endian
+        data.append(UInt8((stepCount >> 24) & 0xFF))
+        data.append(UInt8((stepCount >> 16) & 0xFF))
+        data.append(UInt8((stepCount >> 8) & 0xFF))
+        data.append(UInt8(stepCount & 0xFF))
+
+        for step in steps {
+            data.append(step.modifier)
+            // Pad keys to 6 bytes
+            for i in 0..<6 {
+                data.append(i < step.keys.count ? step.keys[i] : 0)
+            }
+            // Delay — 2 bytes big-endian
+            data.append(UInt8((step.delay >> 8) & 0xFF))
+            data.append(UInt8(step.delay & 0xFF))
+        }
+
+        webrtcClient?.sendHID(data, reliable: true)
+        logger.info("Keyboard macro sent (\(steps.count) steps, isPaste: \(isPaste))")
+    }
+
+    /// Cancel any ongoing keyboard macro execution on the device.
+    func sendCancelKeyboardMacro() {
+        let data = Data([MessageType.cancelKeyboardMacro.rawValue])
+        webrtcClient?.sendHID(data, reliable: true)
+        logger.info("Keyboard macro cancel sent")
+    }
+
     // MARK: - Utility
 
     func sendKeepAlive() {

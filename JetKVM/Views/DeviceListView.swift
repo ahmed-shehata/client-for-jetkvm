@@ -61,7 +61,7 @@ struct DeviceListView: View {
                 #endif
             }
         }
-        .navigationTitle("JetKVM")
+        .navigationTitle("OrbitKVM")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -85,7 +85,7 @@ struct DeviceListView: View {
                 manualPort = "80"
             }
         } message: {
-            Text("Enter the IP address or hostname of your JetKVM device.")
+            Text("Enter the IP address or hostname of your KVM device.")
         }
         .alert("Rename Device", isPresented: $showRenameAlert) {
             TextField("Device Name", text: $editName)

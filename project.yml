@@ -25,7 +25,7 @@ targets:
       base:
         LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks", "@executable_path/../Frameworks"]
         PRODUCT_BUNDLE_IDENTIFIER: coops.jetkvm
-        PRODUCT_NAME: JetKVM
+        PRODUCT_NAME: OrbitKVM
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
@@ -34,11 +34,11 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: JetKVM/JetKVM.entitlements
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Client for JetKVM
+        INFOPLIST_KEY_CFBundleDisplayName: OrbitKVM
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "JetKVM needs local network access to discover and connect to KVM devices on your network."
-        INFOPLIST_KEY_NSCameraUsageDescription: "JetKVM uses WebRTC which references the camera API, but this app does not access your camera."
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "JetKVM uses WebRTC which references the microphone API, but this app does not access your microphone."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "OrbitKVM needs local network access to discover and connect to KVM devices on your network."
+        INFOPLIST_KEY_NSCameraUsageDescription: "OrbitKVM uses WebRTC which references the camera API, but this app does not access your camera."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "OrbitKVM uses WebRTC which references the microphone API, but this app does not access your microphone."
         INFOPLIST_KEY_NSBonjourServices: "_http._tcp"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait"

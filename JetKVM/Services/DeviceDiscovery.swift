@@ -118,7 +118,7 @@ final class DeviceDiscovery: @unchecked Sendable {
               let info = try? JSONDecoder().decode(DeviceInfo.self, from: data) else {
             return nil
         }
-        return info.deviceId.map { "JetKVM (\($0.prefix(8)))" }
+        return info.deviceId.map { "KVM (\($0.prefix(8)))" }
     }
 
     /// Add a device manually by IP address. Adds immediately and probes in background.
