@@ -9,6 +9,7 @@ import os
 final class MouseManager {
     private let logger = Logger(subsystem: "com.jetkvm.app", category: "Mouse")
     private var hidService: HIDService?
+    private var jsonRPCClient: JSONRPCClient?
 
     /// Aspect ratio of the video stream (set when video size changes)
     var videoAspectRatio: CGFloat = 16.0 / 9.0
@@ -21,10 +22,13 @@ final class MouseManager {
     private(set) var contentRect: CGRect = .zero
 
     private var currentButtons: UInt8 = 0
+    private var scrollRemainderX: CGFloat = 0
+    private var scrollRemainderY: CGFloat = 0
     private let maxAbsoluteValue: Int32 = 32767
 
-    func attach(to hidService: HIDService) {
+    func attach(to hidService: HIDService, jsonRPCClient: JSONRPCClient) {
         self.hidService = hidService
+        self.jsonRPCClient = jsonRPCClient
     }
 
     /// Called when RTCVideoView reports a new video frame size.
@@ -88,11 +92,20 @@ final class MouseManager {
     // MARK: - Scroll
 
     func scroll(deltaY: CGFloat, deltaX: CGFloat = 0) {
-        // Normalize scroll delta — macOS trackpad gives floating point values
-        let scrollY = Int8(clamping: Int(deltaY.rounded()))
-        let scrollX = Int8(clamping: Int(deltaX.rounded()))
+        // Preserve sub-unit trackpad movement instead of rounding every event
+        // to zero. Emit whole HID wheel steps and retain the remainder.
+        scrollRemainderY += deltaY
+        scrollRemainderX += deltaX
+        let wholeY = Int(scrollRemainderY)
+        let wholeX = Int(scrollRemainderX)
+        let scrollY = Int8(clamping: wholeY)
+        let scrollX = Int8(clamping: wholeX)
         guard scrollY != 0 || scrollX != 0 else { return }
-        hidService?.sendWheelReport(wheelY: scrollY, wheelX: scrollX)
+        scrollRemainderY -= CGFloat(wholeY)
+        scrollRemainderX -= CGFloat(wholeX)
+        // JetKVM does not define a binary HID wheel message. Its official web
+        // client sends wheelReport over the reliable JSON-RPC data channel.
+        jsonRPCClient?.sendWheelReport(wheelY: Int(scrollY), wheelX: Int(scrollX))
     }
 
     // MARK: - Relative Mouse (optional, for trackpad-as-relative mode)
@@ -102,6 +115,16 @@ final class MouseManager {
         let clampedDy = Int8(clamping: Int(dy.rounded()))
         let btn = buttons ?? currentButtons
         hidService?.sendRelativeMouseReport(dx: clampedDx, dy: clampedDy, buttons: btn)
+    }
+
+    func relativeMouseDown(button: MouseButton) {
+        currentButtons |= button.hidBit
+        sendRelativeMovement(dx: 0, dy: 0)
+    }
+
+    func relativeMouseUp(button: MouseButton) {
+        currentButtons &= ~button.hidBit
+        sendRelativeMovement(dx: 0, dy: 0)
     }
 }
 

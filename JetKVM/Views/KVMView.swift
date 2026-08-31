@@ -10,9 +10,13 @@ import AppKit
 /// Main KVM session view — shows video, handles input, manages the WebRTC connection.
 struct KVMView: View {
     let device: KVMDevice
+    var onClose: (() -> Void)? = nil
     @Environment(AppState.self) private var appState
 
     @State private var viewModel = KVMViewModel()
+    @State private var zoomScale: CGFloat = 1
+    @State private var zoomOffset: CGSize = .zero
+    @AppStorage("lowDataMode") private var lowDataMode = false
 
     private var toolbarLeading: ToolbarItemPlacement {
         #if os(iOS)
@@ -79,14 +83,18 @@ struct KVMView: View {
 
             ToolbarItemGroup(placement: toolbarLeading) {
                 #if os(iOS)
+                if let onClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                    }
+                }
                 Button {
                     viewModel.softwareKeyboardVisible.toggle()
                 } label: {
                     Image(systemName: viewModel.softwareKeyboardVisible ? "keyboard.chevron.compact.down" : "keyboard")
                 }
                 .disabled(!viewModel.state.isActive)
-                #endif
-
+                #else
                 if viewModel.isPasting {
                     Button {
                         viewModel.cancelPaste()
@@ -113,9 +121,55 @@ struct KVMView: View {
                     }
                     .disabled(!viewModel.state.isActive)
                 }
+                #endif
             }
 
             ToolbarItem(placement: toolbarTrailing) {
+                #if os(iOS)
+                Menu {
+                    Toggle(isOn: Binding(
+                        get: { lowDataMode },
+                        set: { enabled in
+                            lowDataMode = enabled
+                            viewModel.setLowDataMode(enabled)
+                        }
+                    )) {
+                        Label("Low Data Mode", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    }
+
+                    Button {
+                        viewModel.inputDiagnosticsVisible.toggle()
+                    } label: {
+                        Label("Input Diagnostics", systemImage: "ladybug")
+                    }
+
+                    if viewModel.isPasting {
+                        Button("Cancel Paste", systemImage: "xmark.circle") {
+                            viewModel.cancelPaste()
+                        }
+                    } else {
+                        Button("Paste", systemImage: "doc.on.clipboard") {
+                            viewModel.pasteFromClipboard()
+                        }
+                    }
+
+                    Section("Shortcuts") {
+                        ForEach(device.shortcuts) { shortcut in
+                            Button(shortcut.label) { viewModel.sendShortcut(shortcut) }
+                        }
+                    }
+
+                    Divider()
+                    Button {
+                        viewModel.disconnect()
+                    } label: {
+                        Label("Disconnect", systemImage: "xmark.circle.fill")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .disabled(!viewModel.state.isActive)
+                #else
                 Button {
                     viewModel.disconnect()
                 } label: {
@@ -123,9 +177,11 @@ struct KVMView: View {
                         .foregroundStyle(.secondary)
                 }
                 .disabled(!viewModel.state.isActive)
+                #endif
             }
         }
         .onAppear {
+            viewModel.setLowDataMode(lowDataMode)
             viewModel.connect(to: device)
         }
         .onDisappear {
@@ -166,13 +222,17 @@ struct KVMView: View {
                     viewModel.mouseManager.updateVideoSize(size)
                 }
             )
+            .scaleEffect(zoomScale)
+            .offset(zoomOffset)
 
             // Transparent overlay captures all mouse/touch/keyboard input
             #if os(iOS)
             InputOverlayView(
                 mouseManager: viewModel.mouseManager,
                 keyboardManager: viewModel.keyboardManager,
-                viewModel: viewModel
+                viewModel: viewModel,
+                zoomScale: $zoomScale,
+                zoomOffset: $zoomOffset
             )
             #else
             InputOverlayView(
@@ -181,10 +241,46 @@ struct KVMView: View {
             )
             #endif
 
-
+            #if os(iOS)
+            if viewModel.inputDiagnosticsVisible {
+                VStack {
+                    Spacer()
+                    inputDiagnostics
+                }
+                .padding()
+            }
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    #if os(iOS)
+    private var inputDiagnostics: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Input mode", selection: $viewModel.inputMode) {
+                ForEach(IOSInputMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+            }
+            .pickerStyle(.segmented)
+            Text(viewModel.inputDebugMessage)
+                .font(.caption.monospaced())
+                .lineLimit(2)
+            HStack {
+                Button("Scroll ↑") { viewModel.mouseManager.scroll(deltaY: -5) }
+                Button("Scroll ↓") { viewModel.mouseManager.scroll(deltaY: 5) }
+                Button("Click") {
+                    viewModel.mouseManager.sendRelativeMovement(dx: 0, dy: 0, buttons: MouseButton.left.hidBit)
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(40))
+                        viewModel.mouseManager.sendRelativeMovement(dx: 0, dy: 0, buttons: 0)
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+    #endif
 
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 16) {
@@ -214,6 +310,13 @@ final class KVMViewModel {
     var state: ConnectionState = .disconnected
     var videoTrack: RTCVideoTrack?
     var isPasting = false
+    #if os(iOS)
+    var inputDiagnosticsVisible = false
+    var inputMode: IOSInputMode = .trackpad {
+        didSet { inputView?.inputMode = inputMode }
+    }
+    var inputDebugMessage = "Waiting for input…"
+    #endif
     var softwareKeyboardVisible = false {
         didSet {
             #if os(iOS)
@@ -221,6 +324,7 @@ final class KVMViewModel {
             #endif
         }
     }
+    private(set) var lowDataMode = false
 
     #if os(iOS)
     weak var inputView: KVMInputUIView?
@@ -232,6 +336,9 @@ final class KVMViewModel {
     private let webrtcClient = WebRTCClient()
     private var jsonRPC: JSONRPCClient?
     private var hidService: HIDService?
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempts = 0
+    private var userRequestedDisconnect = false
 
     let keyboardManager = KeyboardManager()
     let mouseManager = MouseManager()
@@ -240,6 +347,10 @@ final class KVMViewModel {
 
     func connect(to device: KVMDevice) {
         self.device = device
+        userRequestedDisconnect = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
         state = .connecting
 
         Task {
@@ -274,11 +385,25 @@ final class KVMViewModel {
     }
 
     func disconnect() {
+        userRequestedDisconnect = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
         stopKeyboardCapture()
         webrtcClient.disconnect()
         Task { await signalingClient.disconnect() }
         videoTrack = nil
         state = .disconnected
+    }
+
+    func setLowDataMode(_ enabled: Bool) {
+        lowDataMode = enabled
+        applyStreamQuality()
+    }
+
+    private func applyStreamQuality() {
+        jsonRPC?.call(method: "setStreamQualityFactor", params: [
+            "factor": lowDataMode ? 0.1 : 1.0
+        ])
     }
 
     /// Send a shortcut key combo (press modifier+key, release after brief delay)
@@ -388,7 +513,7 @@ final class KVMViewModel {
                 onDisconnect: { [weak self] in
                     Task { @MainActor in
                         if self?.state.isActive == true {
-                            self?.state = .error("Signaling connection lost")
+                            self?.scheduleReconnect(reason: "Signaling connection lost")
                         }
                     }
                 }
@@ -412,10 +537,15 @@ final class KVMViewModel {
         webrtcClient.onConnectionStateChange = { [weak self] newState in
             switch newState {
             case .connected:
+                self?.reconnectTask?.cancel()
+                self?.reconnectTask = nil
+                self?.reconnectAttempts = 0
                 self?.state = .connected
                 self?.logger.info("WebRTC connected!")
-            case .disconnected, .failed:
-                self?.state = .error("WebRTC connection lost")
+            case .disconnected:
+                self?.scheduleReconnect(reason: "WebRTC connection interrupted", graceSeconds: 4)
+            case .failed:
+                self?.scheduleReconnect(reason: "WebRTC connection failed", graceSeconds: 1)
             default:
                 break
             }
@@ -452,15 +582,47 @@ final class KVMViewModel {
         hid.sendHandshake()
         self.hidService = hid
 
-        jsonRPC = JSONRPCClient(webrtcClient: webrtcClient)
+        let rpc = JSONRPCClient(webrtcClient: webrtcClient)
+        jsonRPC = rpc
+        applyStreamQuality()
 
         keyboardManager.attach(to: hid)
-        mouseManager.attach(to: hid)
+        mouseManager.attach(to: hid, jsonRPCClient: rpc)
 
         // Start keyboard capture now that input services are ready
         keyboardManager.startCapturing()
 
         logger.info("Input services ready")
+    }
+
+    private func scheduleReconnect(reason: String, graceSeconds: Double = 2) {
+        guard !userRequestedDisconnect, reconnectTask == nil, device != nil else { return }
+        let maximumAttempts = lowDataMode ? 8 : 5
+        guard reconnectAttempts < maximumAttempts else {
+            state = .error("\(reason). Automatic reconnection failed.")
+            return
+        }
+
+        let attempt = reconnectAttempts + 1
+        let backoff = min(graceSeconds + Double(max(0, attempt - 1)) * 2, 12)
+        logger.warning("\(reason, privacy: .public); reconnecting in \(backoff)s (attempt \(attempt))")
+
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(backoff))
+            guard !Task.isCancelled, let self, let device = self.device,
+                  !self.userRequestedDisconnect else { return }
+
+            self.reconnectAttempts = attempt
+            self.state = .connecting
+            self.stopKeyboardCapture()
+            self.videoTrack = nil
+            self.hidService = nil
+            self.jsonRPC = nil
+            self.webrtcClient.disconnect()
+            await self.signalingClient.disconnect()
+            self.reconnectTask = nil
+            await self.startSignaling(device: device)
+        }
     }
 
     // MARK: - Input Capture

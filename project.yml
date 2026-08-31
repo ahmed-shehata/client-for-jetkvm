@@ -10,8 +10,7 @@ options:
 
 packages:
   WebRTC:
-    url: https://github.com/stasel/WebRTC.git
-    from: "130.0.0"
+    path: Vendor/WebRTC
 
 targets:
   JetKVM:
@@ -41,9 +40,8 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "OrbitKVM uses WebRTC which references the microphone API, but this app does not access your microphone."
         INFOPLIST_KEY_NSBonjourServices: "_http._tcp"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait"
-        INFOPLIST_KEY_UIRequiresFullScreen: YES
-        TARGETED_DEVICE_FAMILY: "2"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
+        TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         MACOSX_DEPLOYMENT_TARGET: "14.0"
       configs:

@@ -36,11 +36,11 @@ struct KVMDevice: Identifiable, Hashable, Codable {
     var shortcuts: [KVMShortcut]
 
     var baseURL: URL {
-        URL(string: "http://\(host):\(port)")!
+        URL(string: "\(port == 443 ? "https" : "http")://\(host):\(port)")!
     }
 
     var webSocketURL: URL {
-        URL(string: "ws://\(host):\(port)/webrtc/signaling/client")!
+        URL(string: "\(port == 443 ? "wss" : "ws")://\(host):\(port)/webrtc/signaling/client")!
     }
 
     init(id: String = UUID().uuidString, name: String, host: String, port: Int = 80, shortcuts: [KVMShortcut] = []) {

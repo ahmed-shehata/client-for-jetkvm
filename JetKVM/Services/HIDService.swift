@@ -10,7 +10,6 @@ import os
 ///   0x01 = Handshake       [version: 1B]
 ///   0x02 = KeyboardReport  [modifier: 1B] [key1..key6: 6B]
 ///   0x03 = PointerReport   [x: 4B BE] [y: 4B BE] [buttons: 1B]
-///   0x04 = WheelReport     [wheelY: 1B] [wheelX: 1B]
 ///   0x05 = KeypressReport  [keycode: 1B] [press: 1B]
 ///   0x06 = MouseReport     [dx: int8] [dy: int8] [buttons: 1B]
 @MainActor
@@ -24,7 +23,6 @@ final class HIDService {
         case handshake = 0x01
         case keyboardReport = 0x02
         case pointerReport = 0x03
-        case wheelReport = 0x04
         case keypressReport = 0x05
         case mouseReport = 0x06
         case keyboardMacro = 0x07
@@ -108,18 +106,6 @@ final class HIDService {
             UInt8(bitPattern: dx),
             UInt8(bitPattern: dy),
             buttons
-        ])
-        webrtcClient?.sendHID(data, reliable: false)
-    }
-
-    // MARK: - Scroll
-
-    /// Send scroll wheel event.
-    func sendWheelReport(wheelY: Int8, wheelX: Int8 = 0) {
-        let data = Data([
-            MessageType.wheelReport.rawValue,
-            UInt8(bitPattern: wheelY),
-            UInt8(bitPattern: wheelX)
         ])
         webrtcClient?.sendHID(data, reliable: false)
     }

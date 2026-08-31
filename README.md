@@ -1,8 +1,8 @@
-# Client for JetKVM
+# OrbitKVM for iPhone, iPad and Mac
 
 **Disclaimer: This is an independent, third-party application and is not affiliated with, endorsed by, or associated with BuildJet.**
 
-A native iPadOS and macOS client for connecting to JetKVM devices, providing remote video, keyboard, and mouse control.
+A native iOS, iPadOS and macOS client for connecting to JetKVM devices, providing remote video, keyboard, and mouse control. The iPhone interface includes trackpad-style pointer control, scrolling, right-click, click-drag, and cursor-following pinch zoom.
 
 ![Screenshot](screenshot.png)
 
@@ -24,6 +24,9 @@ The project uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate t
 # Install XcodeGen if you don't have it
 brew install xcodegen
 
+# Download the pinned WebRTC binary and verify its SHA-256 checksum
+./scripts/bootstrap-webrtc.sh
+
 # Generate the Xcode project
 xcodegen generate
 
@@ -32,6 +35,8 @@ open JetKVM.xcodeproj
 ```
 
 Then build and run for your target (iPad or macOS) from Xcode.
+
+The iPhone build uses the same SwiftUI and WebRTC implementation with a compact interface. Add a JetKVM by entering its hostname or IP address and port. Port 443 uses HTTPS/WSS; other ports use HTTP/WS.
 
 Signed builds available for macos from the releases tab. 
 

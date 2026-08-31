@@ -6,6 +6,7 @@ struct LoginView: View {
     let onAuthenticated: () -> Void
 
     @State private var password = ""
+    @State private var savePassword = false
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -29,6 +30,9 @@ struct LoginView: View {
                 .frame(maxWidth: 300)
                 .onSubmit { login() }
 
+            Toggle("Save password securely", isOn: $savePassword)
+                .frame(maxWidth: 300, alignment: .leading)
+
             if let error = errorMessage {
                 Text(error)
                     .foregroundStyle(.red)
@@ -47,6 +51,12 @@ struct LoginView: View {
             .disabled(password.isEmpty || isLoading)
         }
         .padding(40)
+        .onAppear {
+            if let savedPassword = KeychainPasswordStore.password(for: device) {
+                password = savedPassword
+                savePassword = true
+            }
+        }
     }
 
     private func login() {
@@ -57,6 +67,11 @@ struct LoginView: View {
         Task {
             do {
                 try await authService.login(device: device, password: password)
+                if savePassword {
+                    KeychainPasswordStore.save(password, for: device)
+                } else {
+                    KeychainPasswordStore.removePassword(for: device)
+                }
                 onAuthenticated()
             } catch {
                 errorMessage = error.localizedDescription

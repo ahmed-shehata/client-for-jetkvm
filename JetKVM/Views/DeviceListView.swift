@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Device discovery and selection sidebar.
 struct DeviceListView: View {
+    var compactNavigation = false
     @Environment(AppState.self) private var appState
     @State private var discovery = DeviceDiscovery()
     @State private var showManualEntry = false
@@ -12,6 +13,7 @@ struct DeviceListView: View {
     @State private var editName = ""
     @State private var showShortcutEditor: KVMDevice?
     #if os(iOS)
+    @State private var presentedDevice: KVMDevice?
     @AppStorage("hasSeenSwipeHint") private var hasSeenSwipeHint = false
     @State private var showSwipeHint = false
     #endif
@@ -23,10 +25,18 @@ struct DeviceListView: View {
         )) {
             Section {
                 ForEach(discovery.discoveredDevices) { device in
-                    DeviceRow(device: device,
-                              onEdit: { startEditing(device) },
-                              onShortcuts: { showShortcutEditor = device },
-                              onDelete: { discovery.removeDevice(device) })
+                    Group {
+                        if compactNavigation {
+                            Button {
+                                presentedDevice = device
+                            } label: {
+                                deviceRow(device)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            deviceRow(device)
+                        }
+                    }
                         .tag(device)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
@@ -106,6 +116,16 @@ struct DeviceListView: View {
                 showShortcutEditor = nil
             }
         }
+        #if os(iOS)
+        .fullScreenCover(item: $presentedDevice) { device in
+            NavigationStack {
+                KVMView(device: device) {
+                    presentedDevice = nil
+                }
+            }
+            .interactiveDismissDisabled()
+        }
+        #endif
         .onChange(of: showManualEntry) { _, open in
             appState.keyboardCaptureEnabled = !open
         }
@@ -147,6 +167,13 @@ struct DeviceListView: View {
     private func startEditing(_ device: KVMDevice) {
         editName = device.name
         editingDevice = device
+    }
+
+    private func deviceRow(_ device: KVMDevice) -> some View {
+        DeviceRow(device: device,
+                  onEdit: { startEditing(device) },
+                  onShortcuts: { showShortcutEditor = device },
+                  onDelete: { discovery.removeDevice(device) })
     }
 }
 

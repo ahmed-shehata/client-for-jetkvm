@@ -13,7 +13,6 @@ final class DeviceDiscovery: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.jetkvm.app", category: "Discovery")
     private let queue = DispatchQueue(label: "com.jetkvm.discovery")
     private static let savedDevicesKey = "com.jetkvm.savedDevices"
-
     var discoveredDevices: [KVMDevice] = []
     var isSearching = false
 
@@ -83,7 +82,8 @@ final class DeviceDiscovery: @unchecked Sendable {
     /// Probe an IP address to check if it's a JetKVM device.
     func probeDevice(host: String, name: String? = nil) {
         Task {
-            let url = URL(string: "http://\(host)/device/status")!
+            let scheme = host.hasSuffix(".ts.net") ? "https" : "http"
+            let url = URL(string: "\(scheme)://\(host)/device/status")!
             var request = URLRequest(url: url)
             request.timeoutInterval = 3
 
@@ -110,7 +110,8 @@ final class DeviceDiscovery: @unchecked Sendable {
     }
 
     private func fetchDeviceName(host: String) async -> String? {
-        let url = URL(string: "http://\(host)/device")!
+        let scheme = host.hasSuffix(".ts.net") ? "https" : "http"
+        let url = URL(string: "\(scheme)://\(host)/device")!
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -123,15 +124,31 @@ final class DeviceDiscovery: @unchecked Sendable {
 
     /// Add a device manually by IP address. Adds immediately and probes in background.
     func addManualDevice(host: String, port: Int = 80) {
+        let input = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalizedHost = input.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var normalizedPort = port
+
+        // Accept either a bare hostname/IP or a complete URL pasted from a browser.
+        if input.contains("://"), let url = URL(string: input), let urlHost = url.host {
+            normalizedHost = urlHost
+            normalizedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        } else if normalizedHost.hasSuffix(".ts.net") && port == 80 {
+            normalizedPort = 443
+        }
+
+        guard !normalizedHost.isEmpty else { return }
+        let deviceHost = normalizedHost
+        let devicePort = normalizedPort
+
         // Add immediately so it appears in the list
         Task { @MainActor in
-            if !self.discoveredDevices.contains(where: { $0.host == host && $0.port == port }) {
-                self.discoveredDevices.append(KVMDevice(name: host, host: host, port: port))
+            if !self.discoveredDevices.contains(where: { $0.host == deviceHost && $0.port == devicePort }) {
+                self.discoveredDevices.append(KVMDevice(name: deviceHost, host: deviceHost, port: devicePort))
                 self.saveDevices()
             }
         }
         // Probe in background to update name
-        probeDevice(host: host, name: host)
+        probeDevice(host: deviceHost, name: deviceHost)
     }
 
     /// Remove a device from the saved list.
@@ -162,12 +179,15 @@ final class DeviceDiscovery: @unchecked Sendable {
     }
 
     private func loadSavedDevices() {
-        guard let data = UserDefaults.standard.data(forKey: Self.savedDevicesKey),
-              let devices = try? JSONDecoder().decode([KVMDevice].self, from: data) else { return }
+        guard let data = UserDefaults.standard.data(forKey: Self.savedDevicesKey) else {
+            return
+        }
+        guard let devices = try? JSONDecoder().decode([KVMDevice].self, from: data) else { return }
         for device in devices {
             if !discoveredDevices.contains(where: { $0.host == device.host && $0.port == device.port }) {
                 discoveredDevices.append(device)
             }
         }
+        saveDevices()
     }
 }
