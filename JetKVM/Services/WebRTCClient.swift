@@ -19,6 +19,23 @@ final class WebRTCClient: NSObject, @unchecked Sendable {
 
     // Callbacks
     var onVideoTrack: ((RTCVideoTrack) -> Void)?
+    var onRPCMessage: ((Data) -> Void)?
+
+    func videoDiagnostics() async -> String {
+        guard let pc = peerConnection else { return "No peer connection" }
+        let report = await pc.statistics()
+        guard let inbound = report.statistics.values.first(where: {
+            $0.type == "inbound-rtp" &&
+            (($0.values["kind"] as? String) == "video" || ($0.values["mediaType"] as? String) == "video")
+        }) else { return "Waiting for video RTP · track \(pc.receivers.contains { $0.track is RTCVideoTrack } ? "attached" : "missing")" }
+        let values = inbound.values
+        let bytes = (values["bytesReceived"] as? NSNumber)?.int64Value ?? 0
+        let frames = (values["framesDecoded"] as? NSNumber)?.intValue ?? 0
+        let packets = (values["packetsReceived"] as? NSNumber)?.intValue ?? 0
+        let codecID = values["codecId"] as? String ?? ""
+        let codec = report.statistics[codecID]?.values["mimeType"] as? String ?? "unknown codec"
+        return "\(codec) · \(bytes / 1024) KB · \(packets) packets · \(frames) decoded"
+    }
     var onDataChannelOpen: (() -> Void)?
     var onConnectionStateChange: ((RTCPeerConnectionState) -> Void)?
     var onLocalICECandidate: ((RTCIceCandidate) -> Void)?
@@ -280,6 +297,8 @@ extension WebRTCClient: RTCDataChannelDelegate {
     nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         Task { @MainActor in
             if dataChannel.label == "rpc", !buffer.isBinary {
+                guard dataChannel === rpcChannel else { return }
+                onRPCMessage?(buffer.data)
                 let text = String(data: buffer.data, encoding: .utf8) ?? ""
                 logger.debug("RPC received: \(text.prefix(200))")
             }

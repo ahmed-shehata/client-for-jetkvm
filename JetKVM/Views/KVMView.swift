@@ -252,6 +252,20 @@ struct KVMView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            Text(viewModel.videoDiagnosticText)
+                .font(.system(size: 11, design: .monospaced))
+                .padding(6)
+                .background(.black.opacity(0.7))
+                .foregroundStyle(.white)
+                .allowsHitTesting(false)
+        }
+        .task {
+            while !Task.isCancelled {
+                await viewModel.refreshVideoDiagnostics()
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            }
+        }
     }
 
     #if os(iOS)
@@ -309,6 +323,11 @@ final class KVMViewModel {
 
     var state: ConnectionState = .disconnected
     var videoTrack: RTCVideoTrack?
+    var videoDiagnosticText = "Waiting for video…"
+
+    func refreshVideoDiagnostics() async {
+        videoDiagnosticText = await webrtcClient.videoDiagnostics()
+    }
     var isPasting = false
     #if os(iOS)
     var inputDiagnosticsVisible = false
@@ -401,9 +420,17 @@ final class KVMViewModel {
     }
 
     private func applyStreamQuality() {
-        jsonRPC?.call(method: "setStreamQualityFactor", params: [
-            "factor": lowDataMode ? 0.1 : 1.0
-        ])
+        // Setting even the SAME quality restarts the JetKVM encoder.
+        // Query first so opening/recovering a session doesn't disrupt capture.
+        guard let rpc = jsonRPC else { return }
+        let desired = lowDataMode ? 0.1 : 1.0
+        rpc.call(method: "getStreamQualityFactor") { [weak self, weak rpc] response in
+            guard let self, let rpc, self.jsonRPC === rpc,
+                  let current = response["result"] as? NSNumber,
+                  self.lowDataMode == (desired == 0.1),
+                  abs(current.doubleValue - desired) > 0.001 else { return }
+            rpc.call(method: "setStreamQualityFactor", params: ["factor": desired])
+        }
     }
 
     /// Send a shortcut key combo (press modifier+key, release after brief delay)

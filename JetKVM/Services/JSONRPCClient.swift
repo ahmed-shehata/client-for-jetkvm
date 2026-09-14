@@ -10,14 +10,29 @@ final class JSONRPCClient {
     private let logger = Logger(subsystem: "com.jetkvm.app", category: "JSONRPC")
     private weak var webrtcClient: WebRTCClient?
     private var nextID = 1
+    private var pending: [Int: ([String: Any]) -> Void] = [:]
 
     init(webrtcClient: WebRTCClient) {
         self.webrtcClient = webrtcClient
+        webrtcClient.onRPCMessage = { [weak self] data in
+            guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = message["id"] as? Int else { return }
+            self?.pending.removeValue(forKey: id)?(message)
+        }
     }
 
     // MARK: - Generic RPC
 
-    func call(method: String, params: [String: Any]? = nil) {
+    func call(method: String, params: [String: Any]? = nil,
+              completion: (([String: Any]) -> Void)? = nil) {
+        let id = nextID
+        if let completion {
+            pending[id] = completion
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                self?.pending.removeValue(forKey: id)
+            }
+        }
         var message: [String: Any] = [
             "jsonrpc": "2.0",
             "method": method,
