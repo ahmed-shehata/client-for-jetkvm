@@ -16,6 +16,7 @@ struct KVMView: View {
     @State private var viewModel = KVMViewModel()
     @State private var zoomScale: CGFloat = 1
     @State private var zoomOffset: CGSize = .zero
+    @State private var videoDiagnosticsVisible = false
     #if os(iOS)
     @State private var videoMode: VideoDisplayMode = .color
     @State private var rendererDiagnostic = "Waiting for renderer callbacks…"
@@ -133,6 +134,7 @@ struct KVMView: View {
                 #if os(iOS)
                 Menu {
                     Section("Video diagnostics") {
+                        Toggle("Show video diagnostics", isOn: $videoDiagnosticsVisible)
                         Picker("Display mode", selection: $videoMode) {
                             ForEach(VideoDisplayMode.allCases, id: \.self) { mode in
                                 Text(mode.rawValue).tag(mode)
@@ -241,7 +243,7 @@ struct KVMView: View {
                 videoTrack: viewModel.videoTrack,
                 onVideoSizeChange: { size in viewModel.mouseManager.updateVideoSize(size) },
                 mode: videoMode,
-                onDiagnostic: { rendererDiagnostic = $0 }
+                onDiagnostic: videoDiagnosticsVisible ? { rendererDiagnostic = $0 } : nil
             )
             .id(rendererGeneration)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -286,20 +288,23 @@ struct KVMView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 3) {
-            Text(viewModel.videoDiagnosticText)
-            #if os(iOS)
-            Text(rendererDiagnostic)
-            Text("Display: \(videoMode.rawValue) · zoom \(zoomScale, specifier: "%.1f")")
-            #endif
-            }
+            if videoDiagnosticsVisible {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(viewModel.videoDiagnosticText)
+                    #if os(iOS)
+                    Text(rendererDiagnostic)
+                    Text("Display: \(videoMode.rawValue) · zoom \(zoomScale, specifier: "%.1f")")
+                    #endif
+                }
                 .font(.system(size: 11, design: .monospaced))
                 .padding(6)
                 .background(.black.opacity(0.7))
                 .foregroundStyle(.white)
                 .allowsHitTesting(false)
+            }
         }
-        .task {
+        .task(id: videoDiagnosticsVisible) {
+            guard videoDiagnosticsVisible else { return }
             while !Task.isCancelled {
                 await viewModel.refreshVideoDiagnostics()
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
@@ -365,7 +370,9 @@ final class KVMViewModel {
     var videoDiagnosticText = "Waiting for video…"
 
     func refreshVideoDiagnostics() async {
-        videoDiagnosticText = await webrtcClient.videoDiagnostics()
+        let diagnostic = await webrtcClient.videoDiagnostics()
+        guard !Task.isCancelled else { return }
+        videoDiagnosticText = diagnostic
     }
     var isPasting = false
     #if os(iOS)
