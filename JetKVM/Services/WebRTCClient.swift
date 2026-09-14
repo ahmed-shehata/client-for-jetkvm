@@ -106,7 +106,17 @@ final class WebRTCClient: NSObject, @unchecked Sendable {
         // Add transceiver for receiving video
         let transceiverInit = RTCRtpTransceiverInit()
         transceiverInit.direction = .recvOnly
-        pc.addTransceiver(of: .video, init: transceiverInit)
+        guard let transceiver = pc.addTransceiver(of: .video, init: transceiverInit) else {
+            throw WebRTCError.noPeerConnection
+        }
+        // JetKVM supports H.264. Advertise only that codec so firmware cannot
+        // select a different format simply because it appears in our offer.
+        let codecs = factory.rtpReceiverCapabilities(forKind: kRTCMediaStreamTrackKindVideo).codecs
+        let h264 = codecs.filter { $0.name.caseInsensitiveCompare("H264") == .orderedSame }
+        guard !h264.isEmpty else {
+            throw WebRTCError.connectionFailed("H.264 decoding is unavailable")
+        }
+        try transceiver.setCodecPreferences(h264)
 
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: [
@@ -130,6 +140,9 @@ final class WebRTCClient: NSObject, @unchecked Sendable {
         let sdpType: RTCSdpType = type == "answer" ? .answer : .offer
         let description = RTCSessionDescription(type: sdpType, sdp: sdp)
         try await pc.setRemoteDescription(description)
+        for receiver in pc.receivers {
+            if let track = receiver.track as? RTCVideoTrack { onVideoTrack?(track) }
+        }
         logger.info("Set remote SDP answer")
     }
 
@@ -183,6 +196,25 @@ final class WebRTCClient: NSObject, @unchecked Sendable {
 // MARK: - RTCPeerConnectionDelegate
 
 extension WebRTCClient: RTCPeerConnectionDelegate {
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection,
+                                   didStartReceivingOn transceiver: RTCRtpTransceiver) {
+        Task { @MainActor in
+            guard self.peerConnection === peerConnection,
+                  let track = transceiver.receiver.track as? RTCVideoTrack else { return }
+            onVideoTrack?(track)
+        }
+    }
+
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection,
+                                   didAdd rtpReceiver: RTCRtpReceiver,
+                                   streams: [RTCMediaStream]) {
+        Task { @MainActor in
+            guard self.peerConnection === peerConnection,
+                  let track = rtpReceiver.track as? RTCVideoTrack else { return }
+            onVideoTrack?(track)
+        }
+    }
+
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {
         Task { @MainActor in
             logger.info("Signaling state: \(String(describing: stateChanged))")
@@ -192,6 +224,7 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         Task { @MainActor in
             logger.info("Added stream: \(stream.streamId)")
+            guard self.peerConnection === peerConnection else { return }
             if let videoTrack = stream.videoTracks.first {
                 onVideoTrack?(videoTrack)
             }
