@@ -17,7 +17,7 @@ struct KVMView: View {
     @State private var zoomScale: CGFloat = 1
     @State private var zoomOffset: CGSize = .zero
     #if os(iOS)
-    @State private var videoMode: VideoDisplayMode = .metal
+    @State private var videoMode: VideoDisplayMode = .color
     @State private var rendererDiagnostic = "Waiting for renderer callbacks…"
     @State private var rendererGeneration = 0
     #endif
