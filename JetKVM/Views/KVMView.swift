@@ -16,6 +16,11 @@ struct KVMView: View {
     @State private var viewModel = KVMViewModel()
     @State private var zoomScale: CGFloat = 1
     @State private var zoomOffset: CGSize = .zero
+    #if os(iOS)
+    @State private var videoMode: VideoDisplayMode = .metal
+    @State private var rendererDiagnostic = "Waiting for renderer callbacks…"
+    @State private var rendererGeneration = 0
+    #endif
     @AppStorage("lowDataMode") private var lowDataMode = false
 
     private var toolbarLeading: ToolbarItemPlacement {
@@ -127,6 +132,21 @@ struct KVMView: View {
             ToolbarItem(placement: toolbarTrailing) {
                 #if os(iOS)
                 Menu {
+                    Section("Video diagnostics") {
+                        Picker("Display mode", selection: $videoMode) {
+                            ForEach(VideoDisplayMode.allCases, id: \.self) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        Button("Reset zoom and pan") {
+                            zoomScale = 1
+                            zoomOffset = .zero
+                        }
+                        Button("Recreate video renderer") {
+                            rendererGeneration += 1
+                            rendererDiagnostic = "Waiting for new renderer…"
+                        }
+                    }
                     Toggle(isOn: Binding(
                         get: { lowDataMode },
                         set: { enabled in
@@ -216,6 +236,18 @@ struct KVMView: View {
 
     private var videoContent: some View {
         ZStack {
+            #if os(iOS)
+            VideoView(
+                videoTrack: viewModel.videoTrack,
+                onVideoSizeChange: { size in viewModel.mouseManager.updateVideoSize(size) },
+                mode: videoMode,
+                onDiagnostic: { rendererDiagnostic = $0 }
+            )
+            .id(rendererGeneration)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(zoomScale)
+            .offset(zoomOffset)
+            #else
             VideoView(
                 videoTrack: viewModel.videoTrack,
                 onVideoSizeChange: { size in
@@ -224,6 +256,7 @@ struct KVMView: View {
             )
             .scaleEffect(zoomScale)
             .offset(zoomOffset)
+            #endif
 
             // Transparent overlay captures all mouse/touch/keyboard input
             #if os(iOS)
@@ -253,7 +286,13 @@ struct KVMView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 3) {
             Text(viewModel.videoDiagnosticText)
+            #if os(iOS)
+            Text(rendererDiagnostic)
+            Text("Display: \(videoMode.rawValue) · zoom \(zoomScale, specifier: "%.1f")")
+            #endif
+            }
                 .font(.system(size: 11, design: .monospaced))
                 .padding(6)
                 .background(.black.opacity(0.7))
